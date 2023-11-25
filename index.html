@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Video Call</title>
+</head>
+<body>
+  <video id="localVideo" width="320" height="240" autoplay></video>
+  <video id="remoteVideo" width="320" height="240" autoplay></video>
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    const localVideo = document.getElementById('localVideo');
+    const remoteVideo = document.getElementById('remoteVideo');
+
+    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+      .then((stream) => {
+        localVideo.srcObject = stream;
+
+        const peerConnection = new RTCPeerConnection();
+
+        // Add local stream to the peer connection
+        stream.getTracks().forEach((track) => {
+          peerConnection.addTrack(track, stream);
+        });
+
+        // Send offer when the connection is established
+        peerConnection.createOffer()
+          .then((offer) => {
+            return peerConnection.setLocalDescription(offer);
+          })
+          .then(() => {
+            socket.emit('offer', peerConnection.localDescription);
+          })
+          .catch((error) => {
+            console.error('Error creating offer:', error);
+          });
+
+        // Handle incoming offers
+        socket.on('offer', (offer) => {
+          peerConnection.setRemoteDescription(offer);
+          peerConnection.createAnswer()
+            .then((answer) => {
+              return peerConnection.setLocalDescription(answer);
+            })
+            .then(() => {
+              socket.emit('answer', peerConnection.localDescription);
+            })
+            .catch((error) => {
+              console.error('Error creating answer:', error);
+            });
+        });
+
+        // Handle incoming answers
+        socket.on('answer', (answer) => {
+          peerConnection.setRemoteDescription(answer);
+        });
+
+        // Handle incoming ICE candidates
+        socket.on('ice-candidate', (candidate) => {
+          peerConnection.addIceCandidate(candidate);
+        });
+
+        // Send ICE candidates to the peer
+        peerConnection.onicecandidate = (event) => {
+          if (event.candidate) {
+            socket.emit('ice-candidate', event.candidate);
+          }
+        };
+
+        // Add remote stream to the remote video element
+        peerConnection.ontrack = (event) => {
+          remoteVideo.srcObject = event.streams[0];
+        };
+      })
+      .catch((err) => {
+        console.error('Error accessing camera and microphone:', err);
+      });
+  </script>
+</body>
+</html>
